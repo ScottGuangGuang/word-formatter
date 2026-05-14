@@ -16,34 +16,9 @@ import java.util.zip.*;
 public class WordFormatterService {
 
     public void format(InputStream inputStream, OutputStream outputStream, FormatConfig config) throws Exception {
-
-        // 1. 先用 POI 处理字体、对齐、缩进、边距（这些没问题）
+        // 临时测试：跳过 POI，只做 ZIP 字符串替换
         byte[] inputBytes = inputStream.readAllBytes();
-        XWPFDocument doc = new XWPFDocument(new ByteArrayInputStream(inputBytes));
-
-        applyPageMargin(doc, config);
-
-        for (XWPFParagraph paragraph : doc.getParagraphs()) {
-            String style = paragraph.getStyle();
-            if (isHeading(style, 1)) {
-                applyHeadingFontAlign(paragraph, config, 1);
-            } else if (isHeading(style, 2)) {
-                applyHeadingFontAlign(paragraph, config, 2);
-            } else if (isHeading(style, 3)) {
-                applyHeadingFontAlign(paragraph, config, 3);
-            } else {
-                applyBodyFontAlign(paragraph, config);
-            }
-        }
-
-        // 2. 把 POI 处理后的文档写到字节数组
-        ByteArrayOutputStream poiOut = new ByteArrayOutputStream();
-        doc.write(poiOut);
-        doc.close();
-
-        // 3. 直接操作 ZIP 内的 document.xml 做行距替换
-        byte[] result = replaceSpacingInZip(poiOut.toByteArray(), config);
-
+        byte[] result = replaceSpacingInZip(inputBytes, config);
         outputStream.write(result);
         outputStream.flush();
     }
@@ -63,7 +38,8 @@ public class WordFormatterService {
 
                 if (entry.getName().equals("word/document.xml")) {
                     String xml = new String(entryBytes, StandardCharsets.UTF_8);
-                    xml = replaceAllSpacing(xml, config);
+                    xml = removeExtraSectPr(xml);     // 先删多余分节符
+                    xml = replaceAllSpacing(xml, config);  // 再替换行距
                     entryBytes = xml.getBytes(StandardCharsets.UTF_8);
                 }
 
@@ -77,10 +53,38 @@ public class WordFormatterService {
         return zipOut.toByteArray();
     }
 
-    // ==================== 替换 document.xml 中所有 w:spacing ====================
+    /**
+     * 删除段落内嵌的 sectPr（分节符），只保留 w:body 末尾的主 sectPr
+     * 段落内嵌的 sectPr 会导致多余空白页
+     */
+    private String removeExtraSectPr(String xml) {
+        System.out.println("=== 删除前 sectPr 数量：" + countOccurrences(xml, "<w:sectPr"));
 
+        StringBuffer sb = new StringBuffer();
+        Pattern pPrPattern = Pattern.compile("<w:pPr>([\\s\\S]*?)</w:pPr>", Pattern.DOTALL);
+        Matcher m = pPrPattern.matcher(xml);
+
+        while (m.find()) {
+            String pPrContent = m.group(1);
+            if (pPrContent.contains("<w:sectPr")) {
+                String cleaned = pPrContent
+                        .replaceAll("<w:sectPr[\\s\\S]*?</w:sectPr>", "")
+                        .replaceAll("<w:sectPr[^/]*/?>", "");
+                m.appendReplacement(sb, Matcher.quoteReplacement("<w:pPr>" + cleaned + "</w:pPr>"));
+            } else {
+                m.appendReplacement(sb, Matcher.quoteReplacement(m.group(0)));
+            }
+        }
+        m.appendTail(sb);
+
+        String result = sb.toString();
+        System.out.println("=== 删除后 sectPr 数量：" + countOccurrences(result, "<w:sectPr"));
+        return result;
+    }
+
+    // ==================== 替换 document.xml 中所有 w:spacing ====================
     private String replaceAllSpacing(String xml, FormatConfig config) {
-        // 构建正文行距 spacing 标签
+
         String bodySpacing = buildSpacingTag(
                 config.getBodyLineSpacingRule(),
                 config.getBodyLineSpacingValue(),
@@ -105,32 +109,46 @@ public class WordFormatterService {
                 config.getH3SpaceBefore(),
                 config.getH3SpaceAfter());
 
-        // 匹配每个段落 <w:p ...>...</w:p>，根据样式决定用哪个 spacing
         StringBuffer sb = new StringBuffer();
         Pattern paraPattern = Pattern.compile("<w:p[ >][\\s\\S]*?</w:p>", Pattern.DOTALL);
         Matcher m = paraPattern.matcher(xml);
 
         while (m.find()) {
             String para = m.group();
-            String spacing = bodySpacing; // 默认正文
 
-            // 判断是否是标题
-            if (para.contains("<w:pStyle w:val=\"1\"") ||
-                    para.contains("<w:pStyle w:val=\"Heading1\"") ||
-                    para.contains("<w:pStyle w:val=\"heading1\"")) {
+            // 跳过含分节符的段落
+            if (para.contains("<w:sectPr")) {
+                m.appendReplacement(sb, Matcher.quoteReplacement(para));
+                continue;
+            }
+
+            // 跳过表格内段落（含 w:tc 标记的不会出现在顶层，但双重保护）
+            // 只处理有明确样式或有文字内容的段落
+            boolean hasText = para.contains("<w:t>") || para.contains("<w:t ");
+            boolean isHeading1 = para.contains("<w:pStyle w:val=\"1\"") ||
+                    para.contains("<w:pStyle w:val=\"Heading1\"");
+            boolean isHeading2 = para.contains("<w:pStyle w:val=\"2\"") ||
+                    para.contains("<w:pStyle w:val=\"Heading2\"");
+            boolean isHeading3 = para.contains("<w:pStyle w:val=\"3\"") ||
+                    para.contains("<w:pStyle w:val=\"Heading3\"");
+
+            // 没有文字内容的空段落跳过，避免撑开页面
+            if (!hasText && !isHeading1 && !isHeading2 && !isHeading3) {
+                m.appendReplacement(sb, Matcher.quoteReplacement(para));
+                continue;
+            }
+
+            String spacing = bodySpacing;
+            if (isHeading1) {
                 spacing = h1Spacing;
-            } else if (para.contains("<w:pStyle w:val=\"2\"") ||
-                    para.contains("<w:pStyle w:val=\"Heading2\"") ||
-                    para.contains("<w:pStyle w:val=\"heading2\"")) {
+            } else if (isHeading2) {
                 spacing = h2Spacing;
-            } else if (para.contains("<w:pStyle w:val=\"3\"") ||
-                    para.contains("<w:pStyle w:val=\"Heading3\"") ||
-                    para.contains("<w:pStyle w:val=\"heading3\"")) {
+            } else if (isHeading3) {
                 spacing = h3Spacing;
             }
 
             if (spacing != null) {
-                para = replaceSpacingInPara(para, spacing);
+                para = replacePPrSpacing(para, spacing);
             }
 
             m.appendReplacement(sb, Matcher.quoteReplacement(para));
@@ -140,28 +158,47 @@ public class WordFormatterService {
         return sb.toString();
     }
 
-    // ==================== 替换单个段落的 w:spacing ====================
+    // 只替换段落属性 pPr 内的 spacing
+    private String replacePPrSpacing(String para, String newSpacingTag) {
+        // 匹配 <w:pPr>...</w:pPr> 块
+        Pattern pPrPattern = Pattern.compile("<w:pPr>([\\s\\S]*?)</w:pPr>");
+        Matcher pPrMatcher = pPrPattern.matcher(para);
 
-    private String replaceSpacingInPara(String para, String newSpacingTag) {
-        // 跳过分节符段落，避免产生多余空白页
-        if (para.contains("<w:sectPr")) {
-            return para;
-        }
+        if (pPrMatcher.find()) {
+            String pPrContent = pPrMatcher.group(1);
 
-        if (para.contains("<w:spacing")) {
-            return para.replaceAll("<w:spacing\\b[^/]*/?>", newSpacingTag);
-        } else if (para.contains("</w:pPr>")) {
-            return para.replace("</w:pPr>", newSpacingTag + "</w:pPr>");
+            // 替换或插入 spacing
+            String newPPrContent;
+            if (pPrContent.contains("<w:spacing")) {
+                newPPrContent = pPrContent.replaceAll("<w:spacing\\b[^/]*/?>", newSpacingTag);
+            } else {
+                newPPrContent = pPrContent + newSpacingTag;
+            }
+
+            return para.replace(pPrMatcher.group(0), "<w:pPr>" + newPPrContent + "</w:pPr>");
+
         } else if (para.contains("<w:pPr/>")) {
+            // 自闭合的 pPr
             return para.replace("<w:pPr/>", "<w:pPr>" + newSpacingTag + "</w:pPr>");
-        } else if (para.contains("<w:pPr>")) {
-            return para.replace("<w:pPr>", "<w:pPr>" + newSpacingTag);
         } else {
-            return para.replace("<w:p>", "<w:p><w:pPr>" + newSpacingTag + "</w:pPr>")
-                    .replaceAll("<w:p( [^>]*)?>",
-                            "<w:p$1><w:pPr>" + newSpacingTag + "</w:pPr>");
+            // 没有 pPr，在 <w:p...> 后插入
+            return para.replaceFirst("(<w:p[^>]*>)", "$1<w:pPr>" + newSpacingTag + "</w:pPr>");
         }
     }
+
+    private int countOccurrences(String str, String sub) {
+        int count = 0;
+        int idx = 0;
+        while ((idx = str.indexOf(sub, idx)) != -1) {
+            count++;
+            idx += sub.length();
+        }
+        return count;
+    }
+
+    // ==================== 替换单个段落的 w:spacing ====================
+
+
 
     // ==================== 构建 spacing 标签字符串 ====================
 
