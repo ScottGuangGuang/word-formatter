@@ -143,18 +143,20 @@ public class WordFormatterService {
     // ==================== 替换单个段落的 w:spacing ====================
 
     private String replaceSpacingInPara(String para, String newSpacingTag) {
+        // 跳过分节符段落，避免产生多余空白页
+        if (para.contains("<w:sectPr")) {
+            return para;
+        }
+
         if (para.contains("<w:spacing")) {
-            // 替换已有的 spacing
             return para.replaceAll("<w:spacing\\b[^/]*/?>", newSpacingTag);
         } else if (para.contains("</w:pPr>")) {
-            // 在 </w:pPr> 前插入
             return para.replace("</w:pPr>", newSpacingTag + "</w:pPr>");
         } else if (para.contains("<w:pPr/>")) {
             return para.replace("<w:pPr/>", "<w:pPr>" + newSpacingTag + "</w:pPr>");
         } else if (para.contains("<w:pPr>")) {
             return para.replace("<w:pPr>", "<w:pPr>" + newSpacingTag);
         } else {
-            // 没有 pPr，插入一个
             return para.replace("<w:p>", "<w:p><w:pPr>" + newSpacingTag + "</w:pPr>")
                     .replaceAll("<w:p( [^>]*)?>",
                             "<w:p$1><w:pPr>" + newSpacingTag + "</w:pPr>");
