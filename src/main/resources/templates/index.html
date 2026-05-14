@@ -1,0 +1,415 @@
+<!DOCTYPE html>
+<html lang="zh-CN" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Word 文档格式整理工具</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            font-family: "Microsoft YaHei", "微软雅黑", sans-serif;
+            background: #f0f2f5;
+            color: #333;
+        }
+
+        .header {
+            background: #1677ff;
+            color: white;
+            padding: 18px 40px;
+            font-size: 20px;
+            font-weight: bold;
+            letter-spacing: 2px;
+        }
+
+        .container {
+            max-width: 800px;
+            margin: 40px auto;
+            padding: 0 20px;
+        }
+
+        .card {
+            background: white;
+            border-radius: 8px;
+            padding: 28px 32px;
+            margin-bottom: 24px;
+            box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+        }
+
+        .card-title {
+            font-size: 16px;
+            font-weight: bold;
+            color: #1677ff;
+            border-left: 4px solid #1677ff;
+            padding-left: 10px;
+            margin-bottom: 16px;
+        }
+
+        /* 上传区域 */
+        .upload-area {
+            border: 2px dashed #d9d9d9;
+            border-radius: 8px;
+            padding: 36px;
+            text-align: center;
+            cursor: pointer;
+            transition: border-color 0.2s, background 0.2s;
+            position: relative;
+        }
+
+        .upload-area:hover { border-color: #1677ff; background: #f0f7ff; }
+
+        .upload-area input[type="file"] {
+            position: absolute;
+            inset: 0;
+            opacity: 0;
+            cursor: pointer;
+        }
+
+        .upload-icon { font-size: 40px; margin-bottom: 10px; }
+        .upload-text { color: #999; font-size: 14px; }
+        .upload-text span { color: #1677ff; font-weight: bold; }
+
+        #file-name {
+            margin-top: 12px;
+            font-size: 14px;
+            color: #1677ff;
+            font-weight: bold;
+        }
+
+        /* AI 输入框 */
+        .ai-textarea {
+            width: 100%;
+            min-height: 160px;
+            border: 1px solid #d9d9d9;
+            border-radius: 6px;
+            padding: 14px;
+            font-size: 15px;
+            font-family: "Microsoft YaHei", sans-serif;
+            line-height: 1.8;
+            resize: vertical;
+            outline: none;
+            transition: border-color 0.2s;
+            color: #333;
+        }
+
+        .ai-textarea:focus { border-color: #1677ff; box-shadow: 0 0 0 2px rgba(22,119,255,0.1); }
+
+        .ai-textarea::placeholder { color: #bbb; }
+
+        .example-tips {
+            margin-top: 12px;
+            background: #f6f8ff;
+            border-radius: 6px;
+            padding: 12px 16px;
+        }
+
+        .example-tips p {
+            font-size: 12px;
+            color: #888;
+            margin-bottom: 6px;
+        }
+
+        .example-tags {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+
+        .tag {
+            background: #e8f0fe;
+            color: #1677ff;
+            border-radius: 20px;
+            padding: 4px 12px;
+            font-size: 12px;
+            cursor: pointer;
+            transition: background 0.2s;
+            user-select: none;
+        }
+
+        .tag:hover { background: #bdd0fb; }
+
+        /* 解析预览 */
+        #preview-section {
+            display: none;
+            margin-top: 16px;
+        }
+
+        #preview-section .preview-title {
+            font-size: 13px;
+            color: #888;
+            margin-bottom: 8px;
+        }
+
+        #preview-json {
+            background: #1e1e1e;
+            color: #9cdcfe;
+            border-radius: 6px;
+            padding: 14px;
+            font-size: 13px;
+            font-family: "Consolas", monospace;
+            white-space: pre-wrap;
+            max-height: 260px;
+            overflow-y: auto;
+        }
+
+        /* 按钮组 */
+        .btn-group {
+            display: flex;
+            gap: 12px;
+        }
+
+        .btn-preview {
+            flex: 1;
+            padding: 13px;
+            background: white;
+            color: #1677ff;
+            border: 1.5px solid #1677ff;
+            border-radius: 6px;
+            font-size: 15px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .btn-preview:hover { background: #f0f7ff; }
+
+        .btn-submit {
+            flex: 2;
+            padding: 13px;
+            background: #1677ff;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            font-size: 15px;
+            font-weight: bold;
+            cursor: pointer;
+            letter-spacing: 1px;
+            transition: background 0.2s;
+        }
+
+        .btn-submit:hover { background: #0958d9; }
+
+        .btn-submit:disabled {
+            background: #aaa;
+            cursor: not-allowed;
+        }
+
+        .tip {
+            font-size: 12px;
+            color: #aaa;
+            margin-top: 10px;
+            text-align: center;
+        }
+
+        /* loading */
+        .loading {
+            display: none;
+            text-align: center;
+            padding: 10px;
+            color: #1677ff;
+            font-size: 14px;
+        }
+
+        .spinner {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border: 2px solid #d0e4ff;
+            border-top-color: #1677ff;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            margin-right: 8px;
+            vertical-align: middle;
+        }
+
+        @keyframes spin { to { transform: rotate(360deg); } }
+    </style>
+</head>
+<body>
+
+<div class="header">📄 Word 文档格式整理工具</div>
+
+<div class="container">
+    <form id="main-form" action="/format" method="post" enctype="multipart/form-data">
+
+        <!-- 上传文件 -->
+        <div class="card">
+            <div class="card-title">① 上传 Word 文件</div>
+            <div class="upload-area" id="upload-area">
+                <input type="file" name="file" accept=".docx" id="file-input" required>
+                <div class="upload-icon">📂</div>
+                <div class="upload-text">点击或拖拽上传 <span>.docx</span> 文件</div>
+                <div id="file-name"></div>
+            </div>
+            <p class="tip">仅支持 .docx 格式，暂不支持 .doc</p>
+        </div>
+
+        <!-- AI 格式要求输入 -->
+        <div class="card">
+            <div class="card-title">② 用自然语言描述格式要求</div>
+
+            <textarea
+                    class="ai-textarea"
+                    name="requirement"
+                    id="requirement"
+                    placeholder="例如：正文用宋体12磅，英文用Times New Roman，1.5倍行距，段后6磅；标题一用黑体16磅加粗，段前12磅段后6磅..."
+                    required
+            ></textarea>
+
+            <!-- 示例快捷填入 -->
+            <div class="example-tips">
+                <p>💡 点击示例快速填入：</p>
+                <div class="example-tags">
+                    <span class="tag" onclick="fillExample(this)">正文宋体小四，英文Times New Roman，1.5倍行距</span>
+                    <span class="tag" onclick="fillExample(this)">标题一黑体三号加粗，段前12磅段后6磅</span>
+                    <span class="tag" onclick="fillExample(this)">全文微软雅黑，正文12磅单倍行距，标题一16磅加粗标题二14磅加粗</span>
+                    <span class="tag" onclick="fillExample(this)">正文宋体12磅固定行距20磅，英文Calibri，段前0段后6磅</span>
+                </div>
+            </div>
+
+            <!-- 解析预览区 -->
+            <div id="preview-section">
+                <p class="preview-title">🔍 AI 解析结果预览（仅供参考）：</p>
+                <pre id="preview-json"></pre>
+            </div>
+        </div>
+
+        <!-- 按钮 -->
+        <div class="card">
+            <div class="btn-group">
+                <button type="button" class="btn-preview" onclick="previewParse()">🔍 预览解析结果</button>
+                <button type="submit" class="btn-submit" id="submit-btn">🚀 开始格式化并下载</button>
+            </div>
+            <div class="loading" id="loading">
+                <span class="spinner"></span> AI 正在解析格式要求，请稍候...
+            </div>
+            <p class="tip">处理完成后浏览器会自动下载格式化后的文件</p>
+        </div>
+
+    </form>
+</div>
+
+<script>
+    // 显示选中的文件名
+    document.getElementById('file-input').addEventListener('change', function () {
+        const name = this.files[0] ? this.files[0].name : '';
+        document.getElementById('file-name').textContent = name ? '✅ 已选择：' + name : '';
+    });
+
+    // 点击示例标签填入文本框
+    function fillExample(el) {
+        const ta = document.getElementById('requirement');
+        const cur = ta.value.trim();
+        ta.value = cur ? cur + '；' + el.textContent : el.textContent;
+        ta.focus();
+    }
+
+    // 预览 AI 解析结果
+    async function previewParse() {
+        const requirement = document.getElementById('requirement').value.trim();
+        if (!requirement) {
+            alert('请先输入格式要求');
+            return;
+        }
+
+        document.getElementById('loading').style.display = 'block';
+        document.getElementById('preview-section').style.display = 'none';
+
+        try {
+            const formData = new FormData();
+            formData.append('requirement', requirement);
+
+            const res = await fetch('/parse', { method: 'POST', body: formData });
+            const json = await res.json();
+
+            document.getElementById('preview-json').textContent = formatConfigToChinese(json);
+            document.getElementById('preview-section').style.display = 'block';
+        } catch (e) {
+            alert('解析失败，请检查 API Key 是否正确');
+        } finally {
+            document.getElementById('loading').style.display = 'none';
+        }
+    }
+
+    // 提交时显示 loading
+    document.getElementById('main-form').addEventListener('submit', function () {
+        document.getElementById('submit-btn').disabled = true;
+        document.getElementById('submit-btn').textContent = '⏳ 处理中...';
+        document.getElementById('loading').style.display = 'block';
+    });
+
+    function formatConfigToChinese(json) {
+        const lines = [];
+
+        const fontLabel = (zh, en, size, bold) => {
+            let parts = [];
+            if (zh) parts.push('中文字体：' + zh);
+            if (en) parts.push('英文字体：' + en);
+            if (size) parts.push('字号：' + size + '磅');
+            if (bold !== null && bold !== undefined) parts.push(bold ? '加粗' : '不加粗');
+            return parts.length ? parts.join('，') : '（未设置）';
+        };
+
+        const spacingLabel = (rule, value) => {
+            const map = {
+                'SINGLE': '单倍行距',
+                'ONE_POINT_FIVE': '1.5倍行距',
+                'DOUBLE': '双倍行距',
+                'EXACT': '固定值 ' + (value || '') + ' 磅',
+                'AT_LEAST': '最小值 ' + (value || '') + ' 磅',
+            };
+            return rule ? (map[rule] || rule) : '（未设置）';
+        };
+
+        const marginLabel = v => v != null ? v + ' cm' : '（未设置）';
+        const spaceLabel  = v => v != null ? v + ' 磅' : '（未设置）';
+        const alignLabel  = v => {
+            const map = { LEFT: '左对齐', CENTER: '居中', RIGHT: '右对齐', BOTH: '两端对齐' };
+            return v ? (map[v] || v) : '（未设置）';
+        };
+
+        lines.push('📄 页面边距');
+        lines.push('  上边距：' + marginLabel(json.marginTop));
+        lines.push('  下边距：' + marginLabel(json.marginBottom));
+        lines.push('  左边距：' + marginLabel(json.marginLeft));
+        lines.push('  右边距：' + marginLabel(json.marginRight));
+
+        lines.push('');
+        lines.push('📝 正文');
+        lines.push('  字体：' + fontLabel(json.bodyChineseFont, json.bodyEnglishFont, json.bodyFontSize, null));
+        lines.push('  行间距：' + spacingLabel(json.bodyLineSpacingRule, json.bodyLineSpacingValue));
+        lines.push('  段前间距：' + spaceLabel(json.bodySpaceBefore));
+        lines.push('  段后间距：' + spaceLabel(json.bodySpaceAfter));
+        lines.push('  对齐方式：' + alignLabel(json.bodyAlignment));
+        lines.push('  首行缩进：' + (json.bodyFirstLineIndentChars != null ? json.bodyFirstLineIndentChars + ' 字符' : '（未设置）'));
+
+        lines.push('');
+        lines.push('📌 标题一');
+        lines.push('  字体：' + fontLabel(json.h1ChineseFont, json.h1EnglishFont, json.h1FontSize, json.h1Bold));
+        lines.push('  行间距：' + spacingLabel(json.h1LineSpacingRule, json.h1LineSpacingValue));
+        lines.push('  段前间距：' + spaceLabel(json.h1SpaceBefore));
+        lines.push('  段后间距：' + spaceLabel(json.h1SpaceAfter));
+        lines.push('  对齐方式：' + alignLabel(json.h1Alignment));
+
+        lines.push('');
+        lines.push('📌 标题二');
+        lines.push('  字体：' + fontLabel(json.h2ChineseFont, json.h2EnglishFont, json.h2FontSize, json.h2Bold));
+        lines.push('  行间距：' + spacingLabel(json.h2LineSpacingRule, json.h2LineSpacingValue));
+        lines.push('  段前间距：' + spaceLabel(json.h2SpaceBefore));
+        lines.push('  段后间距：' + spaceLabel(json.h2SpaceAfter));
+        lines.push('  对齐方式：' + alignLabel(json.h2Alignment));
+
+        lines.push('');
+        lines.push('📌 标题三');
+        lines.push('  字体：' + fontLabel(json.h3ChineseFont, json.h3EnglishFont, json.h3FontSize, json.h3Bold));
+        lines.push('  行间距：' + spacingLabel(json.h3LineSpacingRule, json.h3LineSpacingValue));
+        lines.push('  段前间距：' + spaceLabel(json.h3SpaceBefore));
+        lines.push('  段后间距：' + spaceLabel(json.h3SpaceAfter));
+        lines.push('  对齐方式：' + alignLabel(json.h3Alignment));
+
+        return lines.join('\n');
+    }
+</script>
+
+</body>
+</html>
