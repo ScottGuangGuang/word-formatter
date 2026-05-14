@@ -333,9 +333,20 @@
 
     // 提交时显示 loading
     document.getElementById('main-form').addEventListener('submit', function () {
-        document.getElementById('submit-btn').disabled = true;
-        document.getElementById('submit-btn').textContent = '⏳ 处理中...';
-        document.getElementById('loading').style.display = 'block';
+        const btn = document.getElementById('submit-btn');
+        const loading = document.getElementById('loading');
+
+        btn.disabled = true;
+        btn.textContent = '⏳ 处理中...';
+        loading.style.display = 'block';
+
+        // 下载是同步的，浏览器收到文件流后页面不跳转
+        // 用定时器在一段时间后恢复按钮状态
+        setTimeout(function () {
+            btn.disabled = false;
+            btn.textContent = '🚀 开始格式化并下载';
+            loading.style.display = 'none';
+        }, 8000); // 8秒后恢复，可根据文件大小调整
     });
 
     function formatConfigToChinese(json) {
